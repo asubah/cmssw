@@ -6,6 +6,7 @@
 <use name="FWCore/ParameterSet"/>
 <use name="FWCore/PluginManager"/>
 <use name="HeterogeneousCore/CUDACore"/>
+<use name="HeterogeneousCore/KernelConfigurations"/>
 <use name="RecoPixelVertexing/PixelTriplets"/>
 <use name="RecoTracker/Record"/>
 <use name="RecoTracker/TkTrackingRegions"/>

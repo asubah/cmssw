@@ -18,8 +18,13 @@
 #include "FWCore/Utilities/interface/InputTag.h"
 #include "FWCore/Utilities/interface/RunningAverage.h"
 #include "HeterogeneousCore/CUDACore/interface/ScopedContext.h"
+#include "HeterogeneousCore/KernelConfigurations/interface/KernelConfigurations.h"
 #include "MagneticField/Records/interface/IdealMagneticFieldRecord.h"
 #include "RecoTracker/TkMSParametrization/interface/PixelRecoUtilities.h"
+
+#include "FWCore/ServiceRegistry/interface/Service.h"
+#include "HeterogeneousCore/CUDACore/src/chooseDevice.h"
+#include "HeterogeneousCore/CUDAServices/interface/CUDAService.h"
 
 #include "CAHitNtupletGeneratorOnGPU.h"
 
@@ -55,18 +60,23 @@ private:
   edm::EDPutTokenT<TrackSoAHost> tokenTrackCPU_;
 
   GPUAlgo gpuAlgo_;
+
+  cms::KernelConfigurations kernelConfigs_;
 };
 
 template <typename TrackerTraits>
 CAHitNtupletCUDAT<TrackerTraits>::CAHitNtupletCUDAT(const edm::ParameterSet& iConfig)
     : onGPU_(iConfig.getParameter<bool>("onGPU")), tokenField_(esConsumes()), gpuAlgo_(iConfig, consumesCollector()) {
   if (onGPU_) {
+    kernelConfigs_.init(iConfig);
     tokenHitGPU_ = consumes(iConfig.getParameter<edm::InputTag>("pixelRecHitSrc"));
     tokenTrackGPU_ = produces<cms::cuda::Product<TrackSoADevice>>();
   } else {
     tokenHitCPU_ = consumes(iConfig.getParameter<edm::InputTag>("pixelRecHitSrc"));
     tokenTrackCPU_ = produces<TrackSoAHost>();
   }
+
+
 }
 
 template <typename TrackerTraits>
@@ -75,6 +85,9 @@ void CAHitNtupletCUDAT<TrackerTraits>::fillDescriptions(edm::ConfigurationDescri
 
   desc.add<bool>("onGPU", true);
   desc.add<edm::InputTag>("pixelRecHitSrc", edm::InputTag("siPixelRecHitsPreSplittingCUDA"));
+
+  cms::KernelConfigurations::fillKernelDescriptions(desc, {"findClus", "kernel_connect"});
+  CAHitNtupletGeneratorOnGPU::fillDescriptions(desc);
 
   GPUAlgo::fillDescriptions(desc);
   descriptions.addWithDefaultLabel(desc);
@@ -101,7 +114,14 @@ void CAHitNtupletCUDAT<TrackerTraits>::produce(edm::StreamID streamID,
 
     cms::cuda::ScopedContextProduce ctx{hits};
     auto& hits_d = ctx.get(hits);
-    ctx.emplace(iEvent, tokenTrackGPU_, gpuAlgo_.makeTuplesAsync(hits_d, bf, ctx.stream()));
+
+    edm::Service<CUDAService> cudaService;
+    int cudaDevice = cms::cuda::chooseDevice(streamID);
+    std::cout << "cudaDevice: " << cudaDevice << '\n';
+    std::pair<int, int> capability = cudaService->computeCapability(cudaDevice);
+    cms::LaunchConfigsVector filteredKernelConfigs = kernelConfigs_.getConfigsForDevice("cuda/sm_" + std::to_string(capability.first) + std::to_string(capability.second) + "/T4");
+
+    ctx.emplace(iEvent, tokenTrackGPU_, gpuAlgo_.makeTuplesAsync(hits, bf, ctx.stream(), filteredKernelConfigs));
   } else {
     auto& hits_h = iEvent.get(tokenHitCPU_);
     iEvent.emplace(tokenTrackCPU_, gpuAlgo_.makeTuples(hits_h, bf));
