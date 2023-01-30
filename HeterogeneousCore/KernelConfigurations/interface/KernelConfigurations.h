@@ -4,8 +4,8 @@
  * getKernelConfig(string kernelName);
  *
  */
-#ifndef HeterogeneousCore_KernelConfigurationsi_interface_KernelkConfigurations_h
-#define HeterogeneousCore_KernelConfigurationsi_interface_KernelkConfigurations_h
+#ifndef HeterogeneousCore_KernelConfigurations_interface_KernelkConfigurations_h
+#define HeterogeneousCore_KernelConfigurations_interface_KernelkConfigurations_h
 
 #include "FWCore/ParameterSet/interface/ParameterSet.h"
 #include "FWCore/ParameterSet/interface/ParameterSetDescription.h"
@@ -13,81 +13,72 @@
 #include <iostream>
 
 namespace cms {
-  struct KernelParameters {
-    std::string device_;
-    std::vector<uint32_t> threads_;
-    std::vector<uint32_t> blocks_;
+
+  struct LaunchConfig {
+    std::string kernelName;
+    std::vector<uint32_t> threads;
+    std::vector<uint32_t> blocks;
   };
 
-  struct LaunchConfigs {
-    std::string kernelName_;
-    std::vector<uint32_t> threads_;
-    std::vector<uint32_t> blocks_;
-  };
+  class LaunchConfigs {
+    public:
+      void insertConfig(LaunchConfig config) { launchConfigs_.emplace_back(config); };
 
-  using KernelParametersVector = std::vector<KernelParameters>;
-  using LaunchConfigsVector = std::vector<LaunchConfigs>;
+      LaunchConfig getConfig(std::string kernelName) const {
+        for (auto config : launchConfigs_) {
+          if (config.kernelName == kernelName) {
+            LaunchConfig wantedConfig;
+            wantedConfig.kernelName = config.kernelName;
+            wantedConfig.threads = config.threads;
+            wantedConfig.blocks = config.blocks;
+
+            // std::cout << "kernelName: " << wantedConfig.kernelName << '\n';
+            // std::cout << "threads: " << wantedConfig.threads[0] << '\n';
+            // std::cout << "blocks: " << wantedConfig.blocks[0] << '\n';
+
+            return wantedConfig;
+          }
+        }
+
+        std::cout << "WARN: kernel \"" + kernelName + "\" not found\n";
+        return {"", {0, 0, 0}, {0, 0, 0}};
+      }
+
+    private:
+      std::vector<LaunchConfig> launchConfigs_;
+  };
 
   class KernelConfigurations {
     public:
-      void init(const edm::ParameterSet& iConfig){
-        // TODO read all the KernelParameters from the configuration files
-        auto kernels = iConfig.getParameter<edm::ParameterSet>("kernels");
-
-        std::vector<std::string> parametersNames = kernels.getParameterNames();
-        KernelParameters param;
-        KernelParametersVector deviceParams;
-        std::vector<edm::ParameterSet> kernel;
-        for (auto name : parametersNames) {
-          kernel = kernels.getParameter<std::vector<edm::ParameterSet>>(name);
-          for (auto p : kernel) {
-            param.device_ = p.getParameter<std::string>("device");
-            param.threads_ = p.getParameter<std::vector<uint32_t>>("threads");
-            param.blocks_ = p.getParameter<std::vector<uint32_t>>("blocks");
-
-            deviceParams.emplace_back(param);
-          }
-
-          kernelParameters_.emplace_back(std::make_pair(name, deviceParams));
-        }
-
-        for (auto k : kernelParameters_) {
-          std::cout << "kernel: " << k.first << '\n';
-          for (auto p : k.second) {
-            std::cout << "device: " << p.device_ << '\n';
-            std::cout << "threads: " << p.threads_[0] << '\n';
-            std::cout << "blocks: " << p.blocks_[0] << '\n';
-          }
-        }
+      void init(const edm::ParameterSet& iConfig) {
+        configurations_ = iConfig.getParameter<edm::ParameterSet>("kernels");
       }
 
-      LaunchConfigsVector getConfigsForDevice(std::string device) const {
-        LaunchConfigsVector wantedConfigs;
-        LaunchConfigs config;
+      LaunchConfigs getConfigsForDevice(std::string device) const {
+        // TODO: raise error when kerenl not found
+        LaunchConfigs wantedConfigs;
+        LaunchConfig config;
 
-        for (auto kernel : kernelParameters_) {
-          for(auto c : kernel.second) {
-            if (c.device_ == device) {
-              // config.kernelName_ = kernelName
-              config = {kernel.first, c.threads_, c.blocks_};
-              wantedConfigs.emplace_back(config);
+        std::vector<std::string> parametersNames = configurations_.getParameterNames();
+        std::vector<edm::ParameterSet> kernel;
+        for (auto name : parametersNames) {
+          kernel = configurations_.getParameter<std::vector<edm::ParameterSet>>(name);
+          for (auto p : kernel) {
+            if (device == p.getParameter<std::string>("device")) {
+              config.kernelName = name; 
+              config.threads = p.getParameter<std::vector<uint32_t>>("threads");
+              config.blocks = p.getParameter<std::vector<uint32_t>>("blocks");
+
+              wantedConfigs.insertConfig(config);
               break;
             }
           }
         }
 
-        std::cout << "Wanted Configs: \n";
-        for (auto c : wantedConfigs) {
-          std::cout << "kernel: " << c.kernelName_ << '\n';
-          std::cout << "threads: " << c.threads_[0] << '\n';
-          std::cout << "blocks: " << c.blocks_[0] << '\n';
-        }
-        // todo: raise error when kerel not found
-
         return wantedConfigs;
       }
 
-      static void fillKernelDescriptions(edm::ParameterSetDescription& desc, std::vector<std::string> kernelsNames){
+      static void fillKernelDescriptions(edm::ParameterSetDescription& desc, std::vector<std::string> kernelsNames) {
         edm::ParameterSetDescription configsDesc;
         configsDesc.add<std::string>("device", "");
         configsDesc.add<std::vector<unsigned int>>("threads", {0});
@@ -112,9 +103,9 @@ namespace cms {
       }  
 
     private:
-      std::vector<std::pair<std::string, KernelParametersVector>> kernelParameters_;
+      edm::ParameterSet configurations_;
   };
 
 }  // namespace cms
 
-#endif  // HeterogeneousCore_AlpakaInterface_interface_CachingAllocator_h
+#endif  // HeterogeneousCore_KernelConfigurations_interface_KernelkConfigurations_h
