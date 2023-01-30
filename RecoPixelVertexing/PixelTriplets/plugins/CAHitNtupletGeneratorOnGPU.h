@@ -13,6 +13,7 @@
 #include "FWCore/ParameterSet/interface/ParameterSet.h"
 #include "FWCore/Utilities/interface/EDGetToken.h"
 #include "HeterogeneousCore/CUDAUtilities/interface/SimpleVector.h"
+#include "HeterogeneousCore/KernelConfigurations/interface/KernelConfigurations.h"
 
 #include "CAHitNtupletGeneratorKernels.h"
 #include "GPUCACell.h"
@@ -63,7 +64,7 @@ public:
   void beginJob();
   void endJob();
 
-  TrackSoADevice makeTuplesAsync(HitsOnDevice const& hits_d, float bfield, cudaStream_t stream) const;
+  TrackSoADevice makeTuplesAsync(HitsOnDevice const& hits_d, float bfield, cms::LaunchConfigs const &kernelConfigs, cudaStream_t stream) const;
 
   TrackSoAHost makeTuples(HitsOnHost const& hits_d, float bfield) const;
 

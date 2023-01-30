@@ -7,6 +7,7 @@
 template <typename TrackerTraits>
 void CAHitNtupletGeneratorKernelsGPU<TrackerTraits>::launchKernels(const HitsConstView &hh,
                                                                    TkSoAView &tracks_view,
+                                                                   cms::LaunchConfigs const &kernelConfigs,
                                                                    cudaStream_t cudaStream) {
   using namespace gpuPixelDoublets;
   using namespace caHitNtupletGeneratorKernels;
@@ -26,10 +27,12 @@ void CAHitNtupletGeneratorKernelsGPU<TrackerTraits>::launchKernels(const HitsCon
   // applying conbinatoric cleaning such as fishbone at this stage is too expensive
   //
 
-  auto nthTot = 64;
-  auto stride = 4;
+  cms::LaunchConfig config = kernelConfigs.getConfig("kernel_connect");
+
+  auto nthTot = config.threads[0] > 0 ? config.threads[0] : 64;
+  auto stride =  config.threads[1] > 0 ? config.threads[1] : 4;
   auto blockSize = nthTot / stride;
-  auto numberOfBlocks = this->nDoubletBlocks(blockSize);
+  auto numberOfBlocks = config.blocks[0] > 0 ? config.blocks[0] : this->nDoubletBlocks(blockSize);
   auto rescale = numberOfBlocks / 65536;
   blockSize *= (rescale + 1);
   numberOfBlocks = this->nDoubletBlocks(blockSize);
@@ -52,10 +55,11 @@ void CAHitNtupletGeneratorKernelsGPU<TrackerTraits>::launchKernels(const HitsCon
 
   // do not run the fishbone if there are hits only in BPIX1
   if (nhits > this->isOuterHitOfCell_.offset && this->params_.earlyFishbone_) {
-    auto nthTot = 128;
-    auto stride = 16;
+    config = kernelConfigs.getConfig("fishbone");
+    auto nthTot = config.threads[0] > 0 ? config.threads[0] : 128;
+    auto stride =  config.threads[1] > 0 ? config.threads[1] : 16;
     auto blockSize = nthTot / stride;
-    auto numberOfBlocks = (nhits - this->isOuterHitOfCell_.offset + blockSize - 1) / blockSize;
+    auto numberOfBlocks = config.blocks[0] > 0 ? config.blocks[0] : ((nhits - this->isOuterHitOfCell_.offset + blockSize - 1) / blockSize);
     dim3 blks(1, numberOfBlocks, 1);
     dim3 thrs(stride, blockSize, 1);
     fishbone<TrackerTraits><<<blks, thrs, 0, cudaStream>>>(
@@ -63,8 +67,9 @@ void CAHitNtupletGeneratorKernelsGPU<TrackerTraits>::launchKernels(const HitsCon
     cudaCheck(cudaGetLastError());
   }
 
-  blockSize = 64;
-  numberOfBlocks = (3 * this->params_.cellCuts_.maxNumberOfDoublets_ / 4 + blockSize - 1) / blockSize;
+  config = kernelConfigs.getConfig("kernel_find_ntuplets");
+  blockSize = config.threads[0] > 0 ? config.threads[0] : 64;
+  numberOfBlocks = config.blocks[0] > 0 ? config.blocks[0] : ((3 * this->params_.cellCuts_.maxNumberOfDoublets_ / 4 + blockSize - 1) / blockSize);
   kernel_find_ntuplets<TrackerTraits><<<numberOfBlocks, blockSize, 0, cudaStream>>>(hh,
                                                                                     tracks_view,
                                                                                     this->device_theCells_.get(),
@@ -76,18 +81,23 @@ void CAHitNtupletGeneratorKernelsGPU<TrackerTraits>::launchKernels(const HitsCon
   cudaDeviceSynchronize();
   cudaCheck(cudaGetLastError());
 #endif
-  if (this->params_.doStats_)
+  if (this->params_.doStats_){
+    config = kernelConfigs.getConfig("kernel_mark_used");
+    blockSize = config.threads[0] > 0 ? config.threads[0] : 64;
+    numberOfBlocks = config.blocks[0] > 0 ? config.blocks[0] : ((3 * this->params_.cellCuts_.maxNumberOfDoublets_ / 4 + blockSize - 1) / blockSize);
     kernel_mark_used<TrackerTraits>
         <<<numberOfBlocks, blockSize, 0, cudaStream>>>(this->device_theCells_.get(), this->device_nCells_);
   cudaCheck(cudaGetLastError());
+  }
 
 #ifdef GPU_DEBUG
   cudaDeviceSynchronize();
   cudaCheck(cudaGetLastError());
 #endif
 
-  blockSize = 128;
-  numberOfBlocks = (HitContainer::ctNOnes() + blockSize - 1) / blockSize;
+  config = kernelConfigs.getConfig("finalizeBulk");
+  blockSize = config.threads[0] > 0 ? config.threads[0] : 128;
+  numberOfBlocks = config.blocks[0] > 0 ? config.blocks[0] : ((HitContainer::ctNOnes() + blockSize - 1) / blockSize);
 
   cms::cuda::finalizeBulk<<<numberOfBlocks, blockSize, 0, cudaStream>>>(this->device_hitTuple_apc_,
                                                                         &tracks_view.hitIndices());  //TODO test .data()
@@ -97,6 +107,9 @@ void CAHitNtupletGeneratorKernelsGPU<TrackerTraits>::launchKernels(const HitsCon
   cudaCheck(cudaGetLastError());
 #endif
 
+  config = kernelConfigs.getConfig("kernel_fillHitDetIndices");
+  blockSize = config.threads[0] > 0 ? config.threads[0] : 128;
+  numberOfBlocks = config.blocks[0] > 0 ? config.blocks[0] : ((HitContainer::ctNOnes() + blockSize - 1) / blockSize);
   kernel_fillHitDetIndices<TrackerTraits><<<numberOfBlocks, blockSize, 0, cudaStream>>>(tracks_view, hh);
   cudaCheck(cudaGetLastError());
 
@@ -104,6 +117,9 @@ void CAHitNtupletGeneratorKernelsGPU<TrackerTraits>::launchKernels(const HitsCon
   cudaDeviceSynchronize();
   cudaCheck(cudaGetLastError());
 #endif
+  config = kernelConfigs.getConfig("kernel_fillNLayers");
+  blockSize = config.threads[0] > 0 ? config.threads[0] : 128;
+  numberOfBlocks = config.blocks[0] > 0 ? config.blocks[0] : ((HitContainer::ctNOnes() + blockSize - 1) / blockSize);
   kernel_fillNLayers<TrackerTraits>
       <<<numberOfBlocks, blockSize, 0, cudaStream>>>(tracks_view, this->device_hitTuple_apc_);
   cudaCheck(cudaGetLastError());
@@ -114,7 +130,9 @@ void CAHitNtupletGeneratorKernelsGPU<TrackerTraits>::launchKernels(const HitsCon
 #endif
 
   // remove duplicates (tracks that share a doublet)
-  numberOfBlocks = this->nDoubletBlocks(blockSize);
+  config = kernelConfigs.getConfig("kernel_earlyDuplicateRemover");
+  blockSize = config.threads[0] > 0 ? config.threads[0] : 128;
+  numberOfBlocks = config.blocks[0] > 0 ? config.blocks[0] : this->nDoubletBlocks(blockSize);
 
   kernel_earlyDuplicateRemover<TrackerTraits><<<numberOfBlocks, blockSize, 0, cudaStream>>>(
       this->device_theCells_.get(), this->device_nCells_, tracks_view, this->params_.dupPassThrough_);
@@ -124,11 +142,16 @@ void CAHitNtupletGeneratorKernelsGPU<TrackerTraits>::launchKernels(const HitsCon
   cudaCheck(cudaGetLastError());
 #endif
 
-  blockSize = 128;
-  numberOfBlocks = (3 * TrackerTraits::maxNumberOfTuples / 4 + blockSize - 1) / blockSize;
+  config = kernelConfigs.getConfig("kernel_countMultiplicity");
+  blockSize = config.threads[0] > 0 ? config.threads[0] : 128;
+  numberOfBlocks = config.blocks[0] > 0 ? config.blocks[0] : ((3 * TrackerTraits::maxNumberOfTuples / 4 + blockSize - 1) / blockSize);
   kernel_countMultiplicity<TrackerTraits>
       <<<numberOfBlocks, blockSize, 0, cudaStream>>>(tracks_view, this->device_tupleMultiplicity_.get());
   cms::cuda::launchFinalize(this->device_tupleMultiplicity_.get(), cudaStream);
+
+  config = kernelConfigs.getConfig("kernel_fillMultiplicity");
+  blockSize = config.threads[0] > 0 ? config.threads[0] : 128;
+  numberOfBlocks = config.blocks[0] > 0 ? config.blocks[0] : ((3 * TrackerTraits::maxNumberOfTuples / 4 + blockSize - 1) / blockSize);
   kernel_fillMultiplicity<TrackerTraits>
       <<<numberOfBlocks, blockSize, 0, cudaStream>>>(tracks_view, this->device_tupleMultiplicity_.get());
   cudaCheck(cudaGetLastError());
@@ -139,10 +162,11 @@ void CAHitNtupletGeneratorKernelsGPU<TrackerTraits>::launchKernels(const HitsCon
 
   // do not run the fishbone if there are hits only in BPIX1
   if (nhits > this->isOuterHitOfCell_.offset && this->params_.lateFishbone_) {
-    auto nthTot = 128;
-    auto stride = 16;
+    config = kernelConfigs.getConfig("fishbone");
+    auto nthTot = config.threads[0] > 0 ? config.threads[0] : 128;
+    auto stride =  config.threads[1] > 0 ? config.threads[1] : 16;
     auto blockSize = nthTot / stride;
-    auto numberOfBlocks = (nhits - this->isOuterHitOfCell_.offset + blockSize - 1) / blockSize;
+    auto numberOfBlocks = config.blocks[0] > 0 ? config.blocks[0] : ((nhits - this->isOuterHitOfCell_.offset + blockSize - 1) / blockSize);
     dim3 blks(1, numberOfBlocks, 1);
     dim3 thrs(stride, blockSize, 1);
     fishbone<TrackerTraits><<<blks, thrs, 0, cudaStream>>>(
@@ -159,6 +183,7 @@ void CAHitNtupletGeneratorKernelsGPU<TrackerTraits>::launchKernels(const HitsCon
 template <typename TrackerTraits>
 void CAHitNtupletGeneratorKernelsGPU<TrackerTraits>::buildDoublets(const HitsConstView &hh,
                                                                    int32_t offsetBPIX2,
+                                                                   cms::LaunchConfigs const &kernelConfigs,
                                                                    cudaStream_t stream) {
   int32_t nhits = hh.metadata().size();
   using namespace gpuPixelDoublets;
@@ -195,10 +220,11 @@ void CAHitNtupletGeneratorKernelsGPU<TrackerTraits>::buildDoublets(const HitsCon
   this->device_theCellTracksContainer_ =
       (CellTracks *)(this->cellStorage_.get() + TrackerTraits::maxNumOfActiveDoublets * sizeof(CellNeighbors));
 
+  cms::LaunchConfig config = kernelConfigs.getConfig("initDoublets");
   {
-    int threadsPerBlock = 128;
+    int threadsPerBlock = config.threads[0] > 0 ? config.threads[0] : 128;
     // at least one block!
-    int blocks = (std::max(1, nhits - offsetBPIX2) + threadsPerBlock - 1) / threadsPerBlock;
+    int blocks = config.blocks[0] > 0 ? config.blocks[0] : ((std::max(1, nhits - offsetBPIX2) + threadsPerBlock - 1) / threadsPerBlock);
     initDoublets<TrackerTraits><<<blocks, threadsPerBlock, 0, stream>>>(this->isOuterHitOfCell_,
                                                                         nhits,
                                                                         this->device_theCellNeighbors_.get(),
@@ -222,9 +248,10 @@ void CAHitNtupletGeneratorKernelsGPU<TrackerTraits>::buildDoublets(const HitsCon
   // take all layer pairs into account
   auto nActualPairs = this->params_.nPairs();
 
-  int stride = 4;
-  int threadsPerBlock = TrackerTraits::getDoubletsFromHistoMaxBlockSize / stride;
-  int blocks = (4 * nhits + threadsPerBlock - 1) / threadsPerBlock;
+  config = kernelConfigs.getConfig("getDoubletsFromHisto");
+  int stride = config.threads[1] > 0 ? config.threads[1] : 4;
+  int threadsPerBlock = config.threads[0] > 0 ? config.threads[0] : (TrackerTraits::getDoubletsFromHistoMaxBlockSize / stride);
+  int blocks = config.blocks[0] > 0 ? config.blocks[0] : ((4 * nhits + threadsPerBlock - 1) / threadsPerBlock);
   dim3 blks(1, blocks, 1);
   dim3 thrs(stride, threadsPerBlock, 1);
   getDoubletsFromHisto<TrackerTraits><<<blks, thrs, 0, stream>>>(this->device_theCells_.get(),
@@ -246,28 +273,34 @@ void CAHitNtupletGeneratorKernelsGPU<TrackerTraits>::buildDoublets(const HitsCon
 template <typename TrackerTraits>
 void CAHitNtupletGeneratorKernelsGPU<TrackerTraits>::classifyTuples(const HitsConstView &hh,
                                                                     TkSoAView &tracks_view,
+                                                                    cms::LaunchConfigs const &kernelConfigs,
                                                                     cudaStream_t cudaStream) {
   using namespace caHitNtupletGeneratorKernels;
 
   int32_t nhits = hh.metadata().size();
 
-  auto blockSize = 64;
+  cms::LaunchConfig config = kernelConfigs.getConfig("kernel_classifyTracks");
+  auto blockSize = config.threads[0] > 0 ? config.threads[0] : 64;
 
   // classify tracks based on kinematics
-  auto numberOfBlocks = this->nQuadrupletBlocks(blockSize);
+  auto numberOfBlocks = config.blocks[0] > 0 ? config.blocks[0] : this->nQuadrupletBlocks(blockSize);
   kernel_classifyTracks<TrackerTraits>
       <<<numberOfBlocks, blockSize, 0, cudaStream>>>(tracks_view, this->params_.qualityCuts_);
 
   if (this->params_.lateFishbone_) {
     // apply fishbone cleaning to good tracks
-    numberOfBlocks = this->nDoubletBlocks(blockSize);
+    config = kernelConfigs.getConfig("kernel_fishboneCleaner");
+    blockSize = config.threads[0] > 0 ? config.threads[0] : 64;
+    numberOfBlocks = config.blocks[0] > 0 ? config.blocks[0] : this->nDoubletBlocks(blockSize);
     kernel_fishboneCleaner<TrackerTraits>
         <<<numberOfBlocks, blockSize, 0, cudaStream>>>(this->device_theCells_.get(), this->device_nCells_, tracks_view);
     cudaCheck(cudaGetLastError());
   }
 
   // mark duplicates (tracks that share a doublet)
-  numberOfBlocks = this->nDoubletBlocks(blockSize);
+  config = kernelConfigs.getConfig("kernel_fastDuplicateRemover");
+  blockSize = config.threads[0] > 0 ? config.threads[0] : 64;
+  numberOfBlocks = config.blocks[0] > 0 ? config.blocks[0] : this->nDoubletBlocks(blockSize);
   kernel_fastDuplicateRemover<TrackerTraits><<<numberOfBlocks, blockSize, 0, cudaStream>>>(
       this->device_theCells_.get(), this->device_nCells_, tracks_view, this->params_.dupPassThrough_);
   cudaCheck(cudaGetLastError());

@@ -3,6 +3,7 @@
 
 // #define GPU_DEBUG
 
+#include "HeterogeneousCore/KernelConfigurations/interface/KernelConfigurations.h"
 #include "GPUCACell.h"
 #include "gpuPixelDoublets.h"
 
@@ -305,8 +306,11 @@ class CAHitNtupletGeneratorKernelsGPU : public CAHitNtupletGeneratorKernels<cms:
 
 public:
   void launchKernels(const HitsConstView& hh, TkSoAView& track_view, cudaStream_t cudaStream);
+  void launchKernels(const HitsConstView& hh, TkSoAView& track_view, cms::LaunchConfigs const &kernelConfigs, cudaStream_t cudaStream);
   void classifyTuples(const HitsConstView& hh, TkSoAView& track_view, cudaStream_t cudaStream);
+  void classifyTuples(const HitsConstView& hh, TkSoAView& track_view, cms::LaunchConfigs const &kernelConfigs, cudaStream_t cudaStream);
   void buildDoublets(const HitsConstView& hh, int32_t offsetBPIX2, cudaStream_t stream);
+  void buildDoublets(const HitsConstView& hh, int32_t offsetBPIX2, cms::LaunchConfigs const &kernelConfigs, cudaStream_t stream);
   void allocateOnGPU(int32_t nHits, cudaStream_t stream);
   static void printCounters(Counters const* counters);
 };

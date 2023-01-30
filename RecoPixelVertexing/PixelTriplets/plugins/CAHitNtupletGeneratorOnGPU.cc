@@ -279,7 +279,7 @@ void CAHitNtupletGeneratorOnGPU<TrackerTraits>::endJob() {
 
 template <typename TrackerTraits>
 TrackSoAHeterogeneousDevice<TrackerTraits> CAHitNtupletGeneratorOnGPU<TrackerTraits>::makeTuplesAsync(
-    HitsOnDevice const& hits_d, float bfield, cudaStream_t stream) const {
+    HitsOnDevice const& hits_d, float bfield, cms::LaunchConfigs const &kernelConfigs, cudaStream_t stream) const {
   using HelixFitOnGPU = HelixFitOnGPU<TrackerTraits>;
   using TrackSoA = TrackSoAHeterogeneousDevice<TrackerTraits>;
   using GPUKernels = CAHitNtupletGeneratorKernelsGPU<TrackerTraits>;
@@ -290,18 +290,18 @@ TrackSoAHeterogeneousDevice<TrackerTraits> CAHitNtupletGeneratorOnGPU<TrackerTra
   kernels.setCounters(m_counters);
   kernels.allocateOnGPU(hits_d.nHits(), stream);
 
-  kernels.buildDoublets(hits_d.view(), hits_d.offsetBPIX2(), stream);
+  kernels.buildDoublets(hits_d.view(), hits_d.offsetBPIX2(), kernelConfigs, stream);
 
-  kernels.launchKernels(hits_d.view(), tracks.view(), stream);
+  kernels.launchKernels(hits_d.view(), tracks.view(), kernelConfigs, stream);
 
   HelixFitOnGPU fitter(bfield, m_params.fitNas4_);
   fitter.allocateOnGPU(kernels.tupleMultiplicity(), tracks.view());
   if (m_params.useRiemannFit_) {
     fitter.launchRiemannKernels(hits_d.view(), hits_d.nHits(), TrackerTraits::maxNumberOfQuadruplets, stream);
   } else {
-    fitter.launchBrokenLineKernels(hits_d.view(), hits_d.nHits(), TrackerTraits::maxNumberOfQuadruplets, stream);
+    fitter.launchBrokenLineKernels(hits_d.view(), hits_d.nHits(), TrackerTraits::maxNumberOfQuadruplets, kernelConfigs, stream);
   }
-  kernels.classifyTuples(hits_d.view(), tracks.view(), stream);
+  kernels.classifyTuples(hits_d.view(), tracks.view(), kernelConfigs, stream);
 #ifdef GPU_DEBUG
   cudaDeviceSynchronize();
   cudaCheck(cudaGetLastError());

@@ -23,8 +23,8 @@
 #include "RecoTracker/TkMSParametrization/interface/PixelRecoUtilities.h"
 
 #include "FWCore/ServiceRegistry/interface/Service.h"
-#include "HeterogeneousCore/CUDACore/src/chooseDevice.h"
-#include "HeterogeneousCore/CUDAServices/interface/CUDAService.h"
+ // #include "HeterogeneousCore/CUDACore/src/chooseDevice.h"
+#include "HeterogeneousCore/CUDAServices/interface/CUDAInterface.h"
 
 #include "CAHitNtupletGeneratorOnGPU.h"
 
@@ -86,8 +86,23 @@ void CAHitNtupletCUDAT<TrackerTraits>::fillDescriptions(edm::ConfigurationDescri
   desc.add<bool>("onGPU", true);
   desc.add<edm::InputTag>("pixelRecHitSrc", edm::InputTag("siPixelRecHitsPreSplittingCUDA"));
 
-  cms::KernelConfigurations::fillKernelDescriptions(desc, {"findClus", "kernel_connect"});
-  CAHitNtupletGeneratorOnGPU::fillDescriptions(desc);
+  cms::KernelConfigurations::fillKernelDescriptions(desc, {"kernel_connect",
+                                                           "fishbone",
+                                                           "kernel_find_ntuplets",
+                                                           "finalizeBulk",
+                                                           "kernel_fillHitDetIndices",
+                                                           "kernel_fillNLayers",
+                                                           "kernel_earlyDuplicateRemover",
+                                                           "kernel_countMultiplicity",
+                                                           "kernel_fillMultiplicity",
+                                                           "initDoublets",
+                                                           "getDoubletsFromHisto",
+                                                           "kernel_classifyTracks",
+                                                           "kernel_fishboneCleaner",
+                                                           "kernel_fastDuplicateRemover",
+                                                           "kernel_BLFastFit",
+                                                           "kernel_BLFit"
+                                                           });
 
   GPUAlgo::fillDescriptions(desc);
   descriptions.addWithDefaultLabel(desc);
@@ -115,13 +130,14 @@ void CAHitNtupletCUDAT<TrackerTraits>::produce(edm::StreamID streamID,
     cms::cuda::ScopedContextProduce ctx{hits};
     auto& hits_d = ctx.get(hits);
 
-    edm::Service<CUDAService> cudaService;
-    int cudaDevice = cms::cuda::chooseDevice(streamID);
-    std::cout << "cudaDevice: " << cudaDevice << '\n';
-    std::pair<int, int> capability = cudaService->computeCapability(cudaDevice);
-    cms::LaunchConfigsVector filteredKernelConfigs = kernelConfigs_.getConfigsForDevice("cuda/sm_" + std::to_string(capability.first) + std::to_string(capability.second) + "/T4");
+    // edm::Service<CUDAService> cudaService;
+    // int cudaDevice = cms::cuda::chooseDevice(streamID);
+    // std::cout << "cudaDevice: " << cudaDevice << '\n';
+    // std::pair<int, int> capability = cudaService->computeCapability(cudaDevice);
+    // cms::LaunchConfigsVector filteredKernelConfigs = kernelConfigs_.getConfigsForDevice("cuda/sm_" + std::to_string(capability.first) + std::to_string(capability.second) + "/T4");
+    auto const filteredKernelConfigs = kernelConfigs_.getConfigsForDevice("cuda/sm_75/T4");
 
-    ctx.emplace(iEvent, tokenTrackGPU_, gpuAlgo_.makeTuplesAsync(hits, bf, ctx.stream(), filteredKernelConfigs));
+    ctx.emplace(iEvent, tokenTrackGPU_, gpuAlgo_.makeTuplesAsync(hits_d, bf, filteredKernelConfigs, ctx.stream()));
   } else {
     auto& hits_h = iEvent.get(tokenHitCPU_);
     iEvent.emplace(tokenTrackCPU_, gpuAlgo_.makeTuples(hits_h, bf));
