@@ -9,6 +9,7 @@
 #include "CUDADataFormats/SiPixelCluster/interface/gpuClusteringConstants.h"
 #include "HeterogeneousCore/CUDAUtilities/interface/cudaCheck.h"
 #include "HeterogeneousCore/CUDAUtilities/interface/device_unique_ptr.h"
+#include "HeterogeneousCore/KernelConfigurations/interface/KernelConfigurations.h"
 
 #include "PixelRecHitGPUKernel.h"
 #include "gpuPixelRecHits.h"
@@ -47,6 +48,7 @@ namespace pixelgpudetails {
       SiPixelClustersCUDA const& clusters_d,
       BeamSpotCUDA const& bs_d,
       pixelCPEforGPU::ParamsOnGPUT<TrackerTraits> const* cpeParams,
+      cms::LaunchConfigs const &kernelConfigs,
       cudaStream_t stream) const {
     using namespace gpuPixelRecHits;
     auto nHits = clusters_d.nClusters();
@@ -57,8 +59,9 @@ namespace pixelgpudetails {
     int activeModulesWithDigis = digis_d.nModules();
     // protect from empty events
     if (activeModulesWithDigis) {
-      int threadsPerBlock = 128;
-      int blocks = activeModulesWithDigis;
+      cms::LaunchConfig config = kernelConfigs.getConfig("getHits");
+      int threadsPerBlock = config.threads[0] > 0 ? config.threads[0] : 128;
+      int blocks = config.blocks[0] > 0 ? config.blocks[0] : activeModulesWithDigis;
 
 #ifdef GPU_DEBUG
       std::cout << "launching getHits kernel for " << blocks << " blocks" << std::endl;

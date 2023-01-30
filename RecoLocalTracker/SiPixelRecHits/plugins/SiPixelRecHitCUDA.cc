@@ -17,6 +17,7 @@
 #include "Geometry/Records/interface/TrackerDigiGeometryRecord.h"
 #include "Geometry/TrackerGeometryBuilder/interface/TrackerGeometry.h"
 #include "HeterogeneousCore/CUDACore/interface/ScopedContext.h"
+#include "HeterogeneousCore/KernelConfigurations/interface/KernelConfigurations.h"
 #include "RecoLocalTracker/Records/interface/TkPixelCPERecord.h"
 #include "RecoLocalTracker/SiPixelRecHits/interface/PixelCPEBase.h"
 #include "RecoLocalTracker/SiPixelRecHits/interface/PixelCPEFast.h"
@@ -42,6 +43,8 @@ private:
   const edm::EDPutTokenT<cms::cuda::Product<TrackingRecHitSoADevice<TrackerTraits>>> tokenHit_;
 
   const pixelgpudetails::PixelRecHitGPUKernel<TrackerTraits> gpuAlgo_;
+
+  cms::KernelConfigurations kernelConfigs_;
 };
 
 template <typename TrackerTraits>
@@ -50,7 +53,9 @@ SiPixelRecHitCUDAT<TrackerTraits>::SiPixelRecHitCUDAT(const edm::ParameterSet& i
       tBeamSpot(consumes<cms::cuda::Product<BeamSpotCUDA>>(iConfig.getParameter<edm::InputTag>("beamSpot"))),
       token_(consumes<cms::cuda::Product<SiPixelClustersCUDA>>(iConfig.getParameter<edm::InputTag>("src"))),
       tokenDigi_(consumes<cms::cuda::Product<SiPixelDigisCUDA>>(iConfig.getParameter<edm::InputTag>("src"))),
-      tokenHit_(produces<cms::cuda::Product<TrackingRecHitSoADevice<TrackerTraits>>>()) {}
+      tokenHit_(produces<cms::cuda::Product<TrackingRecHitSoADevice<TrackerTraits>>>()) {
+          kernelConfigs_.init(iConfig);
+      }
 
 template <typename TrackerTraits>
 void SiPixelRecHitCUDAT<TrackerTraits>::fillDescriptions(edm::ConfigurationDescriptions& descriptions) {
@@ -62,6 +67,8 @@ void SiPixelRecHitCUDAT<TrackerTraits>::fillDescriptions(edm::ConfigurationDescr
   std::string cpe = "PixelCPEFast";
   cpe += TrackerTraits::nameModifier;
   desc.add<std::string>("CPE", cpe);
+
+  cms::KernelConfigurations::fillKernelDescriptions(desc, {"getHits"});
 
   descriptions.addWithDefaultLabel(desc);
 }
@@ -89,9 +96,11 @@ void SiPixelRecHitCUDAT<TrackerTraits>::produce(edm::StreamID streamID,
   iEvent.getByToken(tBeamSpot, hbs);
   auto const& bs = ctx.get(*hbs);
 
+  auto const filteredKernelConfigs = kernelConfigs_.getConfigsForDevice("cuda/sm_75/T4");
+
   ctx.emplace(iEvent,
               tokenHit_,
-              gpuAlgo_.makeHitsAsync(digis, clusters, bs, fcpe->getGPUProductAsync(ctx.stream()), ctx.stream()));
+              gpuAlgo_.makeHitsAsync(digis, clusters, bs, fcpe->getGPUProductAsync(ctx.stream()), filteredKernelConfigs, ctx.stream()));
 }
 
 using SiPixelRecHitCUDAPhase1 = SiPixelRecHitCUDAT<pixelTopology::Phase1>;

@@ -30,6 +30,7 @@ namespace pixelgpudetails {
                                                          SiPixelClustersCUDA const& clusters_d,
                                                          BeamSpotCUDA const& bs_d,
                                                          ParamsOnGPU const* cpeParams,
+                                                         cms::LaunchConfigs const &kernelConfigs,
                                                          cudaStream_t stream) const;
   };
 
