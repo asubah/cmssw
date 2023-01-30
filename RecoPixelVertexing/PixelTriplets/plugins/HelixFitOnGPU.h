@@ -5,6 +5,7 @@
 #include "CUDADataFormats/TrackingRecHit/interface/TrackingRecHitsUtilities.h"
 #include "RecoPixelVertexing/PixelTrackFitting/interface/FitResult.h"
 #include "Geometry/CommonTopologies/interface/SimplePixelTopology.h"
+#include "HeterogeneousCore/KernelConfigurations/interface/KernelConfigurations.h"
 
 #include "CAStructures.h"
 
@@ -61,6 +62,7 @@ public:
   void launchBrokenLineKernels(const HitConstView &hv,
                                uint32_t nhits,
                                uint32_t maxNumberOfTuples,
+                               cms::LaunchConfigs const &kernelConfigs,
                                cudaStream_t cudaStream);
 
   void launchRiemannKernelsOnCPU(const HitConstView &hv, uint32_t nhits, uint32_t maxNumberOfTuples);
