@@ -35,6 +35,7 @@
 #include "Geometry/CommonTopologies/interface/SimplePixelTopology.h"
 #include "HeterogeneousCore/CUDACore/interface/ScopedContext.h"
 #include "HeterogeneousCore/CUDAServices/interface/CUDAInterface.h"
+#include "HeterogeneousCore/KernelConfigurations/interface/KernelConfigurations.h"
 #include "RecoTracker/Record/interface/CkfComponentsRecord.h"
 
 // local includes
@@ -80,6 +81,8 @@ private:
   const bool useQuality_;
   uint32_t nDigis_;
   const SiPixelClusterThresholds clusterThresholds_;
+  
+  cms::KernelConfigurations kernelConfigs_;
 };
 
 SiPixelRawToClusterCUDA::SiPixelRawToClusterCUDA(const edm::ParameterSet& iConfig)
@@ -103,6 +106,8 @@ SiPixelRawToClusterCUDA::SiPixelRawToClusterCUDA(const edm::ParameterSet& iConfi
   if (!iConfig.getParameter<edm::ParameterSet>("Regions").getParameterNames().empty()) {
     regions_ = std::make_unique<PixelUnpackingRegions>(iConfig, consumesCollector());
   }
+
+  kernelConfigs_.init(iConfig);
 }
 
 void SiPixelRawToClusterCUDA::fillDescriptions(edm::ConfigurationDescriptions& descriptions) {
@@ -127,6 +132,13 @@ void SiPixelRawToClusterCUDA::fillDescriptions(edm::ConfigurationDescriptions& d
         ->setComment("## Empty Regions PSet means complete unpacking");
   }
   desc.add<std::string>("CablingMapLabel", "")->setComment("CablingMap label");  //Tav
+
+  cms::KernelConfigurations::fillKernelDescriptions(desc, {"RawToDigi_kernel",
+                                                           "calibDigis",
+                                                           "countModules",
+                                                           "findClus",
+                                                           "clusterChargeCut"
+                                                           });
   descriptions.addWithDefaultLabel(desc);
 }
 
@@ -254,6 +266,8 @@ void SiPixelRawToClusterCUDA::acquire(const edm::Event& iEvent,
     wordFedAppender.initializeWordFed(fedIds_[i], index[i], start[i], words[i]);
   }
 
+  auto const filteredKernelConfigs = kernelConfigs_.getConfigsForDevice("cuda/sm_75/T4");
+
   gpuAlgo_.makeClustersAsync(isRun2_,
                              clusterThresholds_,
                              gpuMap,
@@ -266,6 +280,7 @@ void SiPixelRawToClusterCUDA::acquire(const edm::Event& iEvent,
                              useQuality_,
                              includeErrors_,
                              edm::MessageDrop::instance()->debugEnabled,
+                             filteredKernelConfigs,
                              ctx.stream());
 }
 

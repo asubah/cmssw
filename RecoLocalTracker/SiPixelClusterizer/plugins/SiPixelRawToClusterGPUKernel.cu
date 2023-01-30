@@ -26,6 +26,7 @@
 #include "HeterogeneousCore/CUDAUtilities/interface/cudaCheck.h"
 #include "HeterogeneousCore/CUDAUtilities/interface/device_unique_ptr.h"
 #include "HeterogeneousCore/CUDAUtilities/interface/host_unique_ptr.h"
+#include "HeterogeneousCore/KernelConfigurations/interface/KernelConfigurations.h"
 #include "RecoLocalTracker/SiPixelClusterizer/plugins/gpuCalibPixel.h"
 #include "RecoLocalTracker/SiPixelClusterizer/plugins/gpuClusterChargeCut.h"
 #include "RecoLocalTracker/SiPixelClusterizer/plugins/gpuClustering.h"
@@ -533,6 +534,7 @@ namespace pixelgpudetails {
                                                        bool useQualityInfo,
                                                        bool includeErrors,
                                                        bool debug,
+                                                       cms::LaunchConfigs const &kernelConfigs,
                                                        cudaStream_t stream) {
     using pixelTopology::Phase1;
     // we're not opting for calling this function in case of early events
@@ -551,10 +553,13 @@ namespace pixelgpudetails {
     }
     clusters_d = SiPixelClustersCUDA(Phase1::numberOfModules, stream);
 
+    cms::LaunchConfig config;
     // Begin Raw2Digi block
     {
-      const int threadsPerBlock = 512;
-      const int blocks = (wordCounter + threadsPerBlock - 1) / threadsPerBlock;  // fill it all
+
+      config = kernelConfigs.getConfig("RawToDigi_kernel");
+      const int threadsPerBlock = config.threads[0] > 0 ? config.threads[0] : 512;
+      const int blocks = config.blocks[0] > 0 ? config.blocks[0] : ((wordCounter + threadsPerBlock - 1) / threadsPerBlock);  // fill it all
 
       assert(0 == wordCounter % 2);
       // wordCounter is the total no of words in each event to be trasfered on device
@@ -603,8 +608,9 @@ namespace pixelgpudetails {
     {
       // clusterizer ...
       using namespace gpuClustering;
-      int threadsPerBlock = 256;
-      int blocks = (std::max(int(wordCounter), int(Phase1::numberOfModules)) + threadsPerBlock - 1) / threadsPerBlock;
+      config = kernelConfigs.getConfig("calibDigis");
+      int threadsPerBlock = config.threads[0] > 0 ? config.threads[0] : 256;
+      int blocks = config.blocks[0] > 0 ? config.blocks[0] : ((std::max(int(wordCounter), int(Phase1::numberOfModules)) + threadsPerBlock - 1) / threadsPerBlock);
 
       if (isRun2)
         gpuCalibPixel::calibDigis<true><<<blocks, threadsPerBlock, 0, stream>>>(digis_d->moduleId(),
@@ -636,13 +642,19 @@ namespace pixelgpudetails {
       std::cout << "CUDA countModules kernel launch with " << blocks << " blocks of " << threadsPerBlock
                 << " threads\n";
 #endif
+      config = kernelConfigs.getConfig("countModules");
+      threadsPerBlock = config.threads[0] > 0 ? config.threads[0] : 256;
+      blocks = config.blocks[0] > 0 ? config.blocks[0] : 
+        ((std::max(int(wordCounter), int(phase1PixelTopology::numberOfModules)) + threadsPerBlock - 1) / threadsPerBlock);
 
       countModules<Phase1><<<blocks, threadsPerBlock, 0, stream>>>(
           digis_d->moduleId(), clusters_d->moduleStart(), digis_d->clus(), wordCounter);
       cudaCheck(cudaGetLastError());
 
-      threadsPerBlock = 256 + 128;  /// should be larger than 6000/16 aka (maxPixInModule/maxiter in the kernel)
-      blocks = phase1PixelTopology::numberOfModules;
+      // threadsPerBlock = 256 + 128;  /// should be larger than 6000/16 aka (maxPixInModule/maxiter in the kernel)
+      config = kernelConfigs.getConfig("findClus");
+      threadsPerBlock = config.threads[0] > 0 ? config.threads[0] : 256 + 128;
+      blocks = config.blocks[0] > 0 ? config.blocks[0] : phase1PixelTopology::numberOfModules;
 #ifdef GPU_DEBUG
       std::cout << "CUDA findClus kernel launch with " << blocks << " blocks of " << threadsPerBlock << " threads\n";
 #endif
@@ -663,6 +675,9 @@ namespace pixelgpudetails {
 #endif
 
       // apply charge cut
+      config = kernelConfigs.getConfig("clusterChargeCut");
+      threadsPerBlock = config.threads[0] > 0 ? config.threads[0] : 256 + 128;
+      blocks = config.blocks[0] > 0 ? config.blocks[0] : phase1PixelTopology::numberOfModules;
       clusterChargeCut<Phase1><<<blocks, threadsPerBlock, 0, stream>>>(clusterThresholds,
                                                                        digis_d->moduleId(),
                                                                        digis_d->adc(),

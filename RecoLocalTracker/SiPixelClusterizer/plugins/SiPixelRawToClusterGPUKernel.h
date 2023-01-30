@@ -11,6 +11,7 @@
 #include "FWCore/Utilities/interface/typedefs.h"
 #include "HeterogeneousCore/CUDAUtilities/interface/SimpleVector.h"
 #include "HeterogeneousCore/CUDAUtilities/interface/host_unique_ptr.h"
+#include "HeterogeneousCore/KernelConfigurations/interface/KernelConfigurations.h"
 #include "HeterogeneousCore/CUDAUtilities/interface/host_noncached_unique_ptr.h"
 #include "DataFormats/SiPixelRawData/interface/SiPixelErrorCompact.h"
 #include "DataFormats/SiPixelRawData/interface/SiPixelFormatterErrors.h"
@@ -112,6 +113,7 @@ namespace pixelgpudetails {
                            bool useQualityInfo,
                            bool includeErrors,
                            bool debug,
+                           cms::LaunchConfigs const &kernelConfigs,
                            cudaStream_t stream);
 
     void makePhase2ClustersAsync(const SiPixelClusterThresholds clusterThresholds,
