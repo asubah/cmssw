@@ -11,6 +11,7 @@
 #include "FWCore/ParameterSet/interface/ParameterSetDescription.h"
 
 #include <iostream>
+#include <regex>
 
 namespace cms {
 
@@ -40,7 +41,7 @@ namespace cms {
           }
         }
 
-        std::cout << "WARN: kernel \"" + kernelName + "\" not found\n";
+        // std::cout << "WARN: kernel \"" + kernelName + "\" not found\n";
         return {"", {0, 0, 0}, {0, 0, 0}};
       }
 
@@ -64,7 +65,7 @@ namespace cms {
         for (auto name : parametersNames) {
           kernel = configurations_.getParameter<std::vector<edm::ParameterSet>>(name);
           for (auto p : kernel) {
-            if (device == p.getParameter<std::string>("device")) {
+            if (std::regex_search(p.getParameter<std::string>("device"), std::regex(device))) {
               config.kernelName = name; 
               config.threads = p.getParameter<std::vector<uint32_t>>("threads");
               config.blocks = p.getParameter<std::vector<uint32_t>>("blocks");

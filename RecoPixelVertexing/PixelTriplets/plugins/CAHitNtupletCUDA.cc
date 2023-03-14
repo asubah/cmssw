@@ -23,7 +23,6 @@
 #include "RecoTracker/TkMSParametrization/interface/PixelRecoUtilities.h"
 
 #include "FWCore/ServiceRegistry/interface/Service.h"
- // #include "HeterogeneousCore/CUDACore/src/chooseDevice.h"
 #include "HeterogeneousCore/CUDAServices/interface/CUDAInterface.h"
 
 #include "CAHitNtupletGeneratorOnGPU.h"
@@ -130,12 +129,12 @@ void CAHitNtupletCUDAT<TrackerTraits>::produce(edm::StreamID streamID,
     cms::cuda::ScopedContextProduce ctx{hits};
     auto& hits_d = ctx.get(hits);
 
-    // edm::Service<CUDAService> cudaService;
-    // int cudaDevice = cms::cuda::chooseDevice(streamID);
-    // std::cout << "cudaDevice: " << cudaDevice << '\n';
-    // std::pair<int, int> capability = cudaService->computeCapability(cudaDevice);
-    // cms::LaunchConfigsVector filteredKernelConfigs = kernelConfigs_.getConfigsForDevice("cuda/sm_" + std::to_string(capability.first) + std::to_string(capability.second) + "/T4");
-    auto const filteredKernelConfigs = kernelConfigs_.getConfigsForDevice("cuda/sm_75/T4");
+    edm::Service<CUDAInterface> cudaInterface;
+    int numberOfDevices = cudaInterface->numberOfDevices();
+    int deviceID = streamID % numberOfDevices;   
+    // std::cout << "deviceID: " << deviceID << '\n';
+    std::pair<int, int> capability = cudaInterface->computeCapability(deviceID);
+    auto const filteredKernelConfigs = kernelConfigs_.getConfigsForDevice("cuda/sm_" + std::to_string(capability.first) + std::to_string(capability.second) + "/T4");
 
     ctx.emplace(iEvent, tokenTrackGPU_, gpuAlgo_.makeTuplesAsync(hits_d, bf, filteredKernelConfigs, ctx.stream()));
   } else {
