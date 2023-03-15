@@ -17,8 +17,8 @@ namespace cms {
 
   struct LaunchConfig {
     std::string kernelName;
-    std::vector<uint32_t> threads;
-    std::vector<uint32_t> blocks;
+    std::array<uint32_t, 3> threads;
+    std::array<uint32_t, 3> blocks;
   };
 
   class LaunchConfigs {
@@ -42,7 +42,7 @@ namespace cms {
         }
 
         // std::cout << "WARN: kernel \"" + kernelName + "\" not found\n";
-        return {"", {0, 0, 0}, {0, 0, 0}};
+        return {"", {{0, 0, 0}}, {{0, 0, 0}}};
       }
 
     private:
@@ -59,6 +59,8 @@ namespace cms {
         // TODO: raise error when kerenl not found
         LaunchConfigs wantedConfigs;
         LaunchConfig config;
+        std::vector<uint32_t> threadsVec;
+        std::vector<uint32_t> blocksVec;
 
         std::vector<std::string> parametersNames = configurations_.getParameterNames();
         std::vector<edm::ParameterSet> kernel;
@@ -67,8 +69,8 @@ namespace cms {
           for (auto p : kernel) {
             if (std::regex_search(p.getParameter<std::string>("device"), std::regex(device))) {
               config.kernelName = name; 
-              config.threads = p.getParameter<std::vector<uint32_t>>("threads");
-              config.blocks = p.getParameter<std::vector<uint32_t>>("blocks");
+              config.threads = p.getParameter<std::array<uint32_t, 3>>("threads");
+              config.blocks = p.getParameter<std::array<uint32_t, 3>>("blocks");
 
               wantedConfigs.insertConfig(config);
               break;
