@@ -50,6 +50,7 @@ public:
   static void fillDescriptions(edm::ConfigurationDescriptions& descriptions);
 
 private:
+  void beginStream(edm::StreamID) override;
   void acquire(const edm::Event& iEvent,
                const edm::EventSetup& iSetup,
                edm::WaitingTaskWithArenaHolder waitingTaskHolder) override;
@@ -83,6 +84,7 @@ private:
   const SiPixelClusterThresholds clusterThresholds_;
   
   cms::KernelConfigurations kernelConfigs_;
+  cms::LaunchConfigs filteredKernelConfigs; 
 };
 
 SiPixelRawToClusterCUDA::SiPixelRawToClusterCUDA(const edm::ParameterSet& iConfig)
@@ -140,6 +142,14 @@ void SiPixelRawToClusterCUDA::fillDescriptions(edm::ConfigurationDescriptions& d
                                                            "clusterChargeCut"
                                                            });
   descriptions.addWithDefaultLabel(desc);
+}
+
+void SiPixelRawToClusterCUDA::beginStream(edm::StreamID streamID) {
+  edm::Service<CUDAInterface> cudaInterface;
+  int numberOfDevices = cudaInterface->numberOfDevices();
+  int deviceID = streamID % numberOfDevices;   
+  std::pair<int, int> capability = cudaInterface->computeCapability(deviceID);
+  filteredKernelConfigs = kernelConfigs_.getConfigsForDevice("cuda/sm_" + std::to_string(capability.first) + std::to_string(capability.second));
 }
 
 void SiPixelRawToClusterCUDA::acquire(const edm::Event& iEvent,
@@ -265,8 +275,6 @@ void SiPixelRawToClusterCUDA::acquire(const edm::Event& iEvent,
   for (uint32_t i = 0; i < fedIds_.size(); ++i) {
     wordFedAppender.initializeWordFed(fedIds_[i], index[i], start[i], words[i]);
   }
-
-  auto const filteredKernelConfigs = kernelConfigs_.getConfigsForDevice("cuda/sm_75/T4");
 
   gpuAlgo_.makeClustersAsync(isRun2_,
                              clusterThresholds_,

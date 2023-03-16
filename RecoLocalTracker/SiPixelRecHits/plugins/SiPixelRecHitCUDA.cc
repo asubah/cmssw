@@ -14,9 +14,11 @@
 #include "FWCore/ParameterSet/interface/ParameterSet.h"
 #include "FWCore/ParameterSet/interface/ParameterSetDescription.h"
 #include "FWCore/Utilities/interface/InputTag.h"
+#include "FWCore/ServiceRegistry/interface/Service.h"
 #include "Geometry/Records/interface/TrackerDigiGeometryRecord.h"
 #include "Geometry/TrackerGeometryBuilder/interface/TrackerGeometry.h"
 #include "HeterogeneousCore/CUDACore/interface/ScopedContext.h"
+#include "HeterogeneousCore/CUDAServices/interface/CUDAInterface.h"
 #include "HeterogeneousCore/KernelConfigurations/interface/KernelConfigurations.h"
 #include "RecoLocalTracker/Records/interface/TkPixelCPERecord.h"
 #include "RecoLocalTracker/SiPixelRecHits/interface/PixelCPEBase.h"
@@ -26,7 +28,7 @@
 #include "PixelRecHitGPUKernel.h"
 
 template <typename TrackerTraits>
-class SiPixelRecHitCUDAT : public edm::global::EDProducer<> {
+class SiPixelRecHitCUDAT : public edm::global::EDProducer<edm::StreamCache<cms::LaunchConfigs>> {
 public:
   explicit SiPixelRecHitCUDAT(const edm::ParameterSet& iConfig);
   ~SiPixelRecHitCUDAT() override = default;
@@ -34,6 +36,8 @@ public:
   static void fillDescriptions(edm::ConfigurationDescriptions& descriptions);
 
 private:
+  std::unique_ptr<cms::LaunchConfigs> beginStream(edm::StreamID streamID) const override;
+
   void produce(edm::StreamID streamID, edm::Event& iEvent, const edm::EventSetup& iSetup) const override;
 
   const edm::ESGetToken<PixelClusterParameterEstimator, TkPixelCPERecord> cpeToken_;
@@ -74,6 +78,18 @@ void SiPixelRecHitCUDAT<TrackerTraits>::fillDescriptions(edm::ConfigurationDescr
 }
 
 template <typename TrackerTraits>
+std::unique_ptr<cms::LaunchConfigs> SiPixelRecHitCUDAT<TrackerTraits>::beginStream(edm::StreamID streamID) const {
+
+  edm::Service<CUDAInterface> cudaInterface;
+  int numberOfDevices = cudaInterface->numberOfDevices();
+  int deviceID = streamID % numberOfDevices;   
+  std::pair<int, int> capability = cudaInterface->computeCapability(deviceID);
+  auto const filteredKernelConfigs = kernelConfigs_.getConfigsForDevice("cuda/sm_" + std::to_string(capability.first) + std::to_string(capability.second));
+
+  return std::make_unique<cms::LaunchConfigs>(std::move(filteredKernelConfigs));
+}
+
+template <typename TrackerTraits>
 void SiPixelRecHitCUDAT<TrackerTraits>::produce(edm::StreamID streamID,
                                                 edm::Event& iEvent,
                                                 const edm::EventSetup& es) const {
@@ -96,7 +112,7 @@ void SiPixelRecHitCUDAT<TrackerTraits>::produce(edm::StreamID streamID,
   iEvent.getByToken(tBeamSpot, hbs);
   auto const& bs = ctx.get(*hbs);
 
-  auto const filteredKernelConfigs = kernelConfigs_.getConfigsForDevice("cuda/sm_75/T4");
+  cms::LaunchConfigs const& filteredKernelConfigs =  *streamCache(streamID);
 
   ctx.emplace(iEvent,
               tokenHit_,

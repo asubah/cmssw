@@ -27,8 +27,13 @@
 
 #include "CAHitNtupletGeneratorOnGPU.h"
 
+// struct testtest {
+//   int x;
+// };
+
+using LaunchVec = std::vector<cms::LaunchConfig>;
 template <typename TrackerTraits>
-class CAHitNtupletCUDAT : public edm::global::EDProducer<> {
+class CAHitNtupletCUDAT : public edm::global::EDProducer<edm::StreamCache<cms::LaunchConfigs>> {
   using HitsConstView = TrackingRecHitSoAConstView<TrackerTraits>;
   using HitsOnDevice = TrackingRecHitSoADevice<TrackerTraits>;
   using HitsOnHost = TrackingRecHitSoAHost<TrackerTraits>;
@@ -44,10 +49,13 @@ public:
 
   static void fillDescriptions(edm::ConfigurationDescriptions& descriptions);
 
+
 private:
   void beginJob() override;
   void endJob() override;
-
+ 
+  std::unique_ptr<cms::LaunchConfigs> beginStream(edm::StreamID streamID) const override;
+  
   void produce(edm::StreamID streamID, edm::Event& iEvent, const edm::EventSetup& iSetup) const override;
 
   bool onGPU_;
@@ -118,6 +126,18 @@ void CAHitNtupletCUDAT<TrackerTraits>::endJob() {
 }
 
 template <typename TrackerTraits>
+std::unique_ptr<cms::LaunchConfigs> CAHitNtupletCUDAT<TrackerTraits>::beginStream(edm::StreamID streamID) const {
+
+  edm::Service<CUDAInterface> cudaInterface;
+  int numberOfDevices = cudaInterface->numberOfDevices();
+  int deviceID = streamID % numberOfDevices;   
+  std::pair<int, int> capability = cudaInterface->computeCapability(deviceID);
+  auto const filteredKernelConfigs = kernelConfigs_.getConfigsForDevice("cuda/sm_" + std::to_string(capability.first) + std::to_string(capability.second));
+
+  return std::make_unique<cms::LaunchConfigs>(std::move(filteredKernelConfigs));
+}
+
+template <typename TrackerTraits>
 void CAHitNtupletCUDAT<TrackerTraits>::produce(edm::StreamID streamID,
                                                edm::Event& iEvent,
                                                const edm::EventSetup& es) const {
@@ -129,12 +149,8 @@ void CAHitNtupletCUDAT<TrackerTraits>::produce(edm::StreamID streamID,
     cms::cuda::ScopedContextProduce ctx{hits};
     auto& hits_d = ctx.get(hits);
 
-    edm::Service<CUDAInterface> cudaInterface;
-    int numberOfDevices = cudaInterface->numberOfDevices();
-    int deviceID = streamID % numberOfDevices;   
-    // std::cout << "deviceID: " << deviceID << '\n';
-    std::pair<int, int> capability = cudaInterface->computeCapability(deviceID);
-    auto const filteredKernelConfigs = kernelConfigs_.getConfigsForDevice("cuda/sm_" + std::to_string(capability.first) + std::to_string(capability.second) + "/T4");
+    //const cms::LaunchConfigs& filteredKernelConfigs =  streamCache(streamID);
+    cms::LaunchConfigs const& filteredKernelConfigs =  *streamCache(streamID);
 
     ctx.emplace(iEvent, tokenTrackGPU_, gpuAlgo_.makeTuplesAsync(hits_d, bf, filteredKernelConfigs, ctx.stream()));
   } else {
